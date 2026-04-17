@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+    ╔══════════════════════════════════════════════════════════╗
+    ║  SPRING BOOT PARENT POM                                  ║
+    ║  Inheriting from spring-boot-starter-parent gives us:    ║
+    ║  - Dependency version management (no need to specify     ║
+    ║    versions for Spring libs)                             ║
+    ║  - Default plugin configurations                         ║
+    ║  - Sensible defaults for builds                          ║
+    ╚══════════════════════════════════════════════════════════╝
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.3</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.example</groupId>
+    <artifactId>crud-demo</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>crud-demo</name>
+    <description>Spring Boot CRUD Demo with H2 and Annotation Explanations</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <!-- Override Spring Boot's managed Lombok version to fix TypeTag::UNKNOWN
+             compiler crash on newer Java 17 builds -->
+        <lombok.version>1.18.36</lombok.version>
+    </properties>
+
+    <dependencies>
+        <!--
+        spring-boot-starter-web:
+        Brings in Spring MVC, Tomcat (embedded), Jackson (JSON), etc.
+        This is what allows us to create REST endpoints.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!--
+        spring-boot-starter-data-jpa:
+        Brings in Hibernate (JPA implementation), Spring Data JPA repositories,
+        and transaction management. This powers our @Entity, @Repository, etc.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!--
+        spring-boot-starter-validation:
+        Enables Bean Validation (JSR-380) annotations like @NotBlank, @Size, @Email.
+        Uses Hibernate Validator under the hood.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!--
+        H2 Database:
+        An in-memory database that runs inside the JVM. Perfect for development
+        and learning — no external DB setup needed. Data resets on every restart.
+        scope=runtime means it's only needed at runtime, not compile time.
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!--
+        Lombok:
+        Reduces boilerplate via annotations processed at compile time.
+        @Getter, @Setter, @Builder, @NoArgsConstructor, etc. generate code for you.
+        scope=provided means it's not included in the final JAR.
+        -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!--
+        springdoc-openapi:
+        Auto-generates OpenAPI 3 docs from Spring MVC annotations.
+        Swagger UI available at /swagger-ui.html
+        Raw JSON spec at /v3/api-docs
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.3.0</version>
+        </dependency>
+
+        <!-- Testing dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+            spring-boot-maven-plugin:
+            Packages the app as an executable "fat JAR" containing all dependencies.
+            Run with: mvn package && java -jar target/crud-demo-0.0.1-SNAPSHOT.jar
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!--
+                    Fork compilation so it runs in a separate JVM using javac from
+                    JAVA17_HOME (or JAVA_HOME if not set). This isolates Lombok's
+                    annotation processor from the Maven runtime JVM, which is required
+                    when Maven itself runs on Java 21+ while the project targets Java 17.
+                    Set JAVA17_HOME or JAVA_HOME to your Java 17 installation before
+                    running mvn from the terminal.
+                    IntelliJ handles this automatically via its own JDK settings.
+                    -->
+                    <fork>true</fork>
+                    <executable>${env.JAVA17_HOME}/bin/javac</executable>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
