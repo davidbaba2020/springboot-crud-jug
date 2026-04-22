@@ -3,11 +3,16 @@ package com.example.crud.exception;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -105,6 +110,49 @@ public class GlobalExceptionHandler {
         log.warn("Validation failed: {}", fieldErrors);
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorBody);
+    }
+
+    // ── Security exceptions ──────────────────────────────────────
+
+    /** Bad username or password during login → 401 */
+    @ExceptionHandler(BadCredentialsException.class)
+    public ResponseEntity<Map<String, Object>> handleBadCredentials(
+            BadCredentialsException ex, WebRequest request) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(buildErrorBody(
+                401, "Unauthorized", "Invalid username or password", request.getDescription(false)));
+    }
+
+    /** Account disabled → 401 */
+    @ExceptionHandler(DisabledException.class)
+    public ResponseEntity<Map<String, Object>> handleDisabled(
+            DisabledException ex, WebRequest request) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(buildErrorBody(
+                401, "Unauthorized", "Account is disabled", request.getDescription(false)));
+    }
+
+    /** Any other Spring Security auth failure → 401 */
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<Map<String, Object>> handleAuthException(
+            AuthenticationException ex, WebRequest request) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(buildErrorBody(
+                401, "Unauthorized", ex.getMessage(), request.getDescription(false)));
+    }
+
+    /** Insufficient role / @PreAuthorize failed → 403 */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccessDenied(
+            AccessDeniedException ex, WebRequest request) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(buildErrorBody(
+                403, "Forbidden", "You do not have permission to access this resource",
+                request.getDescription(false)));
+    }
+
+    /** ResponseStatusException (thrown in controllers) */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleResponseStatus(
+            ResponseStatusException ex, WebRequest request) {
+        return ResponseEntity.status(ex.getStatusCode()).body(buildErrorBody(
+                ex.getStatusCode().value(), "Error", ex.getReason(), request.getDescription(false)));
     }
 
     /**

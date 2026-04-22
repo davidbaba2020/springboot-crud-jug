@@ -1,10 +1,15 @@
 package com.example.crud.service;
 
 import com.example.crud.dto.ProductDto;
+import com.example.crud.dto.ProductDtoResponse;
 import com.example.crud.exception.ResourceNotFoundException;
 import com.example.crud.model.Product;
 import com.example.crud.repository.ProductRepository;
+import com.fasterxml.jackson.databind.util.BeanUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,26 +70,12 @@ public class ProductServiceImpl implements ProductService {
      *  @Autowired — Dependency Injection
      * ════════════════════════════════════════════════════════════
      *
-     * Tells Spring to inject a bean of type ProductRepository here.
-     * Spring finds the bean it created for ProductRepository (the
-     * auto-generated JPA proxy) and injects it.
-     *
-     * CONSTRUCTOR INJECTION (preferred, shown below in comment):
-     *   When there's only ONE constructor, @Autowired is optional —
-     *   Spring injects automatically. Constructor injection is preferred
-     *   because:
-     *     - Fields are final (immutable, thread-safe)
-     *     - Dependencies are explicit
-     *     - Easier to test (just call new ProductServiceImpl(mockRepo))
-     *
-     * FIELD INJECTION (@Autowired on field) — works but discouraged:
-     *   - Makes testing harder (can't inject mock without reflection)
-     *   - Hides dependencies
-     *   - Can't use final fields
+     * Constructor injection — @Autowired is implicit for single constructors.
+     * Fields are final (immutable, thread-safe), dependencies are explicit,
+     * and testing is easier (just call new ProductServiceImpl(mockRepo)).
      */
     private final ProductRepository productRepository;
 
-    // Constructor injection — @Autowired is implicit for single constructors
     public ProductServiceImpl(ProductRepository productRepository) {
         this.productRepository = productRepository;
     }
@@ -95,85 +86,86 @@ public class ProductServiceImpl implements ProductService {
      */
     @Override
     @Transactional(readOnly = true)
-    public List<Product> findAll() {
-        log.debug("Fetching all products");
-        return productRepository.findAll();
+    public Page<ProductDtoResponse> findAll(Pageable pageable) {
+        log.debug("Fetching products — page {}, size {}", pageable.getPageNumber(), pageable.getPageSize());
+        return productRepository.findAll(pageable).map(this::toResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Product findById(Long id) {
+    public ProductDtoResponse findById(Long id) {
         log.debug("Fetching product with id: {}", id);
-        return productRepository.findById(id)
+        Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
-    }
-
-
-    @Override
-    public Product create(Product product) {
-        log.info("Creating new product: {}", product.getName());
-        Product saved = productRepository.save(product);
-        log.info("Product created with id: {}", saved.getId());
-        return saved;
+        return toResponse(product);
     }
 
     @Override
-    public Product create2(ProductDto product) {
-        Product product1 = maptToProduct(product);
-        log.info("Creating new product: {}", product.getName());
-        Product saved = productRepository.save(product1);
-        log.info("Product created with id: {}", saved.getId());
-        return saved;
+    public ProductDtoResponse create(ProductDto request) {
+        log.info("Creating new product: {}", request.name());
+        Product p = new Product();
+        BeanUtils.copyProperties(request, p);
+//        Product saved = productRepository.save(toEntity(request));
+        log.info("Product created with id: {}", p.getId());
+        return toResponse(p);
     }
 
     @Override
-    public Product update(Long id, Product updatedProduct) {
+    public ProductDtoResponse update(Long id, ProductDto request) {
         log.info("Updating product with id: {}", id);
-        // findById throws ResourceNotFoundException if not found
-        Product existing = findById(id);
+        Product existing = productRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
 
-        // Update fields — we don't replace the entity to preserve id and createdAt
-        existing.setName(updatedProduct.getName());
-        existing.setDescription(updatedProduct.getDescription());
-        existing.setPrice(updatedProduct.getPrice());
-        existing.setStock(updatedProduct.getStock());
-        existing.setCategory(updatedProduct.getCategory());
+        // Update fields — preserve id and createdAt
+        existing.setName(request.name());
+        existing.setDescription(request.description());
+        existing.setPrice(request.price());
+        existing.setStock(request.stock());
+        existing.setCategory(request.category());
 
-        // save() here does an UPDATE because existing.getId() is set
-        return productRepository.save(existing);
+        return toResponse(productRepository.save(existing));
     }
 
     @Override
     public void delete(Long id) {
         log.info("Deleting product with id: {}", id);
-        // Verify it exists before deleting
-        findById(id);
+        if (!productRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Product not found with id: " + id);
+        }
         productRepository.deleteById(id);
         log.info("Product {} deleted successfully", id);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<Product> findByCategory(String category) {
-        return productRepository.findByCategory(category);
+    public List<ProductDtoResponse> findByCategory(String category) {
+        return productRepository.findByCategory(category).stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<Product> search(String keyword) {
-        return productRepository.searchProducts(keyword);
+    public List<ProductDtoResponse> search(String keyword) {
+        return productRepository.searchProducts(keyword).stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<Product> findByPriceRange(BigDecimal min, BigDecimal max) {
-        return productRepository.findByPriceBetween(min, max);
+    public List<ProductDtoResponse> findByPriceRange(BigDecimal min, BigDecimal max) {
+        return productRepository.findByPriceBetween(min, max).stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<Product> findLowStock(Integer threshold) {
-        return productRepository.findByStockLessThanEqualOrderByStockAsc(threshold);
+    public List<ProductDtoResponse> findLowStock(Integer threshold) {
+        return productRepository.findByStockLessThanEqualOrderByStockAsc(threshold).stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @Override
@@ -191,18 +183,26 @@ public class ProductServiceImpl implements ProductService {
         return stats;
     }
 
+    // ── Mapping helpers ─────────────────────────────────────────
 
-    public Product getProduct(Long id) {
-        return productRepository.findById(id).get();
+    private Product toEntity(ProductDto dto) {
+        return Product.builder()
+                .name(dto.name())
+                .description(dto.description())
+                .price(dto.price())
+                .stock(dto.stock())
+                .category(dto.category())
+                .build();
     }
 
-    private Product maptToProduct(ProductDto product) {
-        return Product.builder()
-                .name(product.getName())
-                .description(product.getDescription())
-                .price(product.getPrice())
-                .category(product.getCategory())
-                .stock(product.getStock())
-                .build();
+    private ProductDtoResponse toResponse(Product product) {
+        return new ProductDtoResponse(
+                product.getId(),
+                product.getName(),
+                product.getDescription(),
+                product.getPrice(),
+                product.getStock(),
+                product.getCategory()
+        );
     }
 }

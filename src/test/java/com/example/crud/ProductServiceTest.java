@@ -1,6 +1,7 @@
 package com.example.crud;
 
-import com.example.crud.model.Product;
+import com.example.crud.dto.ProductDto;
+import com.example.crud.dto.ProductDtoResponse;
 import com.example.crud.repository.ProductRepository;
 import com.example.crud.service.ProductService;
 import org.junit.jupiter.api.BeforeEach;
@@ -8,7 +9,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -46,7 +46,7 @@ class ProductServiceTest {
     @Autowired
     private ProductRepository productRepository;
 
-    private Product sampleProduct;
+    private ProductDto sampleProduct;
 
     /**
      * @BeforeEach
@@ -58,13 +58,13 @@ class ProductServiceTest {
      */
     @BeforeEach
     void setUp() {
-        sampleProduct = Product.builder()
-                .name("Test Product")
-                .description("A product for testing")
-                .price(new BigDecimal("29.99"))
-                .stock(50)
-                .category("Test")
-                .build();
+        sampleProduct = new ProductDto(
+                "Test Product",
+                "A product for testing",
+                new BigDecimal("29.99"),
+                50,
+                "Test"
+        );
     }
 
     /**
@@ -76,49 +76,48 @@ class ProductServiceTest {
     @Test
     @DisplayName("Should create a product successfully")
     void shouldCreateProduct() {
-        Product created = productService.create(sampleProduct);
+        ProductDtoResponse created = productService.create(sampleProduct);
 
-        assertThat(created.getId()).isNotNull();
-        assertThat(created.getName()).isEqualTo("Test Product");
-        assertThat(created.getPrice()).isEqualByComparingTo("29.99");
-        assertThat(created.getCreatedAt()).isNotNull();
+        assertThat(created.id()).isNotNull();
+        assertThat(created.name()).isEqualTo("Test Product");
+        assertThat(created.price()).isEqualByComparingTo("29.99");
     }
 
     @Test
     @DisplayName("Should find product by id")
     void shouldFindProductById() {
-        Product created = productService.create(sampleProduct);
-        Product found = productService.findById(created.getId());
+        ProductDtoResponse created = productService.create(sampleProduct);
+        ProductDtoResponse found = productService.findById(created.id());
 
         assertThat(found).isNotNull();
-        assertThat(found.getName()).isEqualTo("Test Product");
+        assertThat(found.name()).isEqualTo("Test Product");
     }
 
     @Test
     @DisplayName("Should update product successfully")
     void shouldUpdateProduct() {
-        Product created = productService.create(sampleProduct);
+        ProductDtoResponse created = productService.create(sampleProduct);
 
-        Product update = Product.builder()
-                .name("Updated Product")
-                .description("Updated description")
-                .price(new BigDecimal("49.99"))
-                .stock(100)
-                .category("Updated")
-                .build();
+        ProductDto updateRequest = new ProductDto(
+                "Updated Product",
+                "Updated description",
+                new BigDecimal("49.99"),
+                100,
+                "Updated"
+        );
 
-        Product updated = productService.update(created.getId(), update);
+        ProductDtoResponse updated = productService.update(created.id(), updateRequest);
 
-        assertThat(updated.getName()).isEqualTo("Updated Product");
-        assertThat(updated.getPrice()).isEqualByComparingTo("49.99");
-        assertThat(updated.getId()).isEqualTo(created.getId()); // ID unchanged
+        assertThat(updated.name()).isEqualTo("Updated Product");
+        assertThat(updated.price()).isEqualByComparingTo("49.99");
+        assertThat(updated.id()).isEqualTo(created.id()); // ID unchanged
     }
 
     @Test
     @DisplayName("Should delete product")
     void shouldDeleteProduct() {
-        Product created = productService.create(sampleProduct);
-        Long id = created.getId();
+        ProductDtoResponse created = productService.create(sampleProduct);
+        Long id = created.id();
 
         productService.delete(id);
 
@@ -130,10 +129,10 @@ class ProductServiceTest {
     void shouldSearchProducts() {
         productService.create(sampleProduct);
 
-        List<Product> results = productService.search("Test");
+        List<ProductDtoResponse> results = productService.search("Test");
 
         assertThat(results).isNotEmpty();
-        assertThat(results).anyMatch(p -> p.getName().contains("Test"));
+        assertThat(results).anyMatch(p -> p.name().contains("Test"));
     }
 
     @Test

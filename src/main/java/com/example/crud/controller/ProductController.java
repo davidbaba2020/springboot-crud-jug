@@ -1,7 +1,7 @@
 package com.example.crud.controller;
 
 import com.example.crud.dto.ProductDto;
-import com.example.crud.model.Product;
+import com.example.crud.dto.ProductDtoResponse;
 import com.example.crud.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -10,6 +10,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -30,7 +33,7 @@ import java.util.Map;
  *                     instead of being interpreted as a view name.
  *
  * Without @ResponseBody, returning "products" would look for a
- * Thymeleaf/JSP template called "products". With it, the List<Product>
+ * Thymeleaf/JSP template called "products". With it, the List<ProductDtoResponse>
  * is converted to a JSON array automatically.
  *
  * ════════════════════════════════════════════════════════════
@@ -74,11 +77,12 @@ public class ProductController {
      *
      *   ResponseEntity.ok(body) → 200 OK with body
      */
-    @Operation(summary = "Get all products")
+    @Operation(summary = "Get all products (paginated)")
     @GetMapping
-    public ResponseEntity<List<Product>> getAllProducts() {
+    public ResponseEntity<Page<ProductDtoResponse>> getAllProducts(
+            @PageableDefault(size = 20, sort = "id") Pageable pageable) {
         log.debug("GET /api/products");
-        return ResponseEntity.ok(productService.findAll());
+        return ResponseEntity.ok(productService.findAll(pageable));
     }
 
     /**
@@ -95,7 +99,8 @@ public class ProductController {
         @ApiResponse(responseCode = "404", description = "Product not found")
     })
     @GetMapping("/{id}")
-    public ResponseEntity<Product> getProductById(@Parameter(description = "Product ID") @PathVariable Long id) {
+    public ResponseEntity<ProductDtoResponse> getProductById(
+            @Parameter(description = "Product ID") @PathVariable Long id) {
         log.debug("GET /api/products/{}", id);
         return ResponseEntity.ok(productService.findById(id));
     }
@@ -107,26 +112,23 @@ public class ProductController {
      *
      * @RequestBody
      *   Deserialises the HTTP request body (JSON) into a Java object.
-     *   Jackson handles the conversion: {"name":"X",...} → Product object
+     *   Jackson handles the conversion: {"name":"X",...} → ProductDto record
      *
      * @Valid
      *   Triggers Bean Validation on the @RequestBody object.
-     *   Checks all annotations on Product fields (@NotBlank, @Size, etc.).
+     *   Checks all annotations on ProductDto fields (@NotBlank, @Size, etc.).
      *   If validation fails → 400 Bad Request with validation errors.
      *   Without @Valid, validation annotations are ignored!
      *
      * HttpStatus.CREATED (201)
      *   REST convention: return 201 when a resource is successfully created.
-     *   201 vs 200: 201 explicitly tells the client "a new resource was created".
      */
     @Operation(summary = "Create a new product")
     @ApiResponse(responseCode = "201", description = "Product created")
     @PostMapping
-//    public ResponseEntity<Product> createProduct(@Valid @RequestBody Product product) {
-    public ResponseEntity<Product> createProduct(@Valid @RequestBody ProductDto req) {
-        log.info("POST /api/products — Creating: {}", req.getName());
-        Product created = productService.create2(req);
-        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    public ResponseEntity<ProductDtoResponse> createProduct(@Valid @RequestBody ProductDto request) {
+        log.info("POST /api/products — Creating: {}", request.name());
+        return ResponseEntity.status(HttpStatus.CREATED).body(productService.create(request));
     }
 
     /**
@@ -141,11 +143,11 @@ public class ProductController {
         @ApiResponse(responseCode = "404", description = "Product not found")
     })
     @PutMapping("/{id}")
-    public ResponseEntity<Product> updateProduct(
+    public ResponseEntity<ProductDtoResponse> updateProduct(
             @Parameter(description = "Product ID") @PathVariable Long id,
-            @Valid @RequestBody Product product) {
+            @Valid @RequestBody ProductDto request) {
         log.info("PUT /api/products/{}", id);
-        return ResponseEntity.ok(productService.update(id, product));
+        return ResponseEntity.ok(productService.update(id, request));
     }
 
     /**
@@ -162,7 +164,8 @@ public class ProductController {
         @ApiResponse(responseCode = "404", description = "Product not found")
     })
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteProduct(@Parameter(description = "Product ID") @PathVariable Long id) {
+    public ResponseEntity<Void> deleteProduct(
+            @Parameter(description = "Product ID") @PathVariable Long id) {
         log.info("DELETE /api/products/{}", id);
         productService.delete(id);
         return ResponseEntity.noContent().build(); // 204 No Content
@@ -182,8 +185,9 @@ public class ProductController {
      */
     @Operation(summary = "Search products by keyword (name, description, or category)")
     @GetMapping("/search")
-    public ResponseEntity<List<Product>> searchProducts(
-            @Parameter(description = "Search keyword") @RequestParam(required = false, defaultValue = "") String q) {
+    public ResponseEntity<List<ProductDtoResponse>> searchProducts(
+            @Parameter(description = "Search keyword")
+            @RequestParam(required = false, defaultValue = "") String q) {
         log.debug("GET /api/products/search?q={}", q);
         return ResponseEntity.ok(productService.search(q));
     }
@@ -194,7 +198,8 @@ public class ProductController {
      */
     @Operation(summary = "Get products by category")
     @GetMapping("/category/{category}")
-    public ResponseEntity<List<Product>> getByCategory(@Parameter(description = "Category name") @PathVariable String category) {
+    public ResponseEntity<List<ProductDtoResponse>> getByCategory(
+            @Parameter(description = "Category name") @PathVariable String category) {
         return ResponseEntity.ok(productService.findByCategory(category));
     }
 
@@ -204,7 +209,7 @@ public class ProductController {
      */
     @Operation(summary = "Get products within a price range")
     @GetMapping("/price-range")
-    public ResponseEntity<List<Product>> getByPriceRange(
+    public ResponseEntity<List<ProductDtoResponse>> getByPriceRange(
             @Parameter(description = "Minimum price") @RequestParam BigDecimal min,
             @Parameter(description = "Maximum price") @RequestParam BigDecimal max) {
         return ResponseEntity.ok(productService.findByPriceRange(min, max));
@@ -216,8 +221,9 @@ public class ProductController {
      */
     @Operation(summary = "Get products with stock at or below threshold")
     @GetMapping("/low-stock")
-    public ResponseEntity<List<Product>> getLowStock(
-            @Parameter(description = "Stock threshold (default 10)") @RequestParam(defaultValue = "10") Integer threshold) {
+    public ResponseEntity<List<ProductDtoResponse>> getLowStock(
+            @Parameter(description = "Stock threshold (default 10)")
+            @RequestParam(defaultValue = "10") Integer threshold) {
         return ResponseEntity.ok(productService.findLowStock(threshold));
     }
 

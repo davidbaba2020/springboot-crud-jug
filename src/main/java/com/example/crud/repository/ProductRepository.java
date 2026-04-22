@@ -76,7 +76,7 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
      *   deleteBy{Field}           → DELETE WHERE field = ?
      */
 
-    // SELECT * FROM products WHERE category = ?
+//     SELECT * FROM products WHERE category = ?
     List<Product> findByCategory(String category);
 
     // SELECT * FROM products WHERE LOWER(name) LIKE LOWER('%keyword%')

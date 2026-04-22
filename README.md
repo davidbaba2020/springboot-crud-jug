@@ -1,7 +1,36 @@
-# Spring Boot CRUD Demo — Annotations Explained
+# Spring Boot CRUD — Spring Security + DB-Driven RBAC
 
-A complete Spring Boot CRUD application using H2 in-memory database,
-built to clearly illustrate the role of every major Spring annotation.
+A complete Spring Boot REST API demonstrating:
+- Full CRUD with pagination
+- JWT authentication (JJWT 0.12)
+- **DB-driven Role-Based Access Control** — roles and permissions live in the database, not in code
+- First-login forced password change
+- Custom security filters
+
+---
+
+## Architecture Overview
+
+```
+app_permission          app_role
+┌───────────────┐      ┌─────────────┐      ┌──────────────┐
+│ id            │      │ id          │      │ id           │
+│ name          │◄─────│ name        │◄─────│ username     │
+│ description   │  M:M │ description │  M:1 │ email        │
+└───────────────┘      └─────────────┘      │ password     │
+     role_permissions                       │ role_id (FK) │
+                                            │ mustChange.. │
+                                            │ enabled      │
+                                            └──────────────┘
+                                               app_user
+```
+
+**Seeded roles and permissions:**
+
+| Role        | Permissions                                                                 |
+|-------------|-----------------------------------------------------------------------------|
+| `ROLE_ADMIN`| `PRODUCT_READ`, `PRODUCT_WRITE`, `PRODUCT_DELETE`, `USER_READ`, `USER_WRITE`|
+| `ROLE_USER` | `PRODUCT_READ`, `PRODUCT_WRITE`                                             |
 
 ---
 
@@ -9,23 +38,43 @@ built to clearly illustrate the role of every major Spring annotation.
 
 ```
 src/main/java/com/example/crud/
-├── CrudDemoApplication.java        ← @SpringBootApplication entry point
 ├── controller/
-│   └── ProductController.java      ← @RestController, @GetMapping, @PostMapping...
+│   ├── AuthController.java        login, register, change-password, /me
+│   ├── AdminController.java       user management (USER_READ / USER_WRITE)
+│   ├── ProductController.java     product CRUD (PRODUCT_* permissions)
+│   └── TestController.java        public / user / admin test endpoints
 ├── service/
-│   ├── ProductService.java         ← Interface (loose coupling)
-│   └── ProductServiceImpl.java     ← @Service, @Slf4j, @Transactional
+│   ├── ProductService.java
+│   └── ProductServiceImpl.java
 ├── repository/
-│   └── ProductRepository.java      ← @Repository, JpaRepository
+│   ├── ProductRepository.java
+│   ├── UserRepository.java
+│   ├── RoleRepository.java
+│   └── PermissionRepository.java
 ├── model/
-│   └── Product.java                ← @Entity, @Table, @Column, @Data, validation
+│   ├── Product.java               JPA entity
+│   ├── User.java                  JPA entity (app_user table)
+│   ├── Role.java                  JPA entity (app_role table) — NOT an enum
+│   └── Permission.java            JPA entity (app_permission table)
+├── security/
+│   ├── Permissions.java           Compile-time permission name constants
+│   ├── JwtUtils.java              Token generation & validation (JJWT 0.12)
+│   ├── JwtAuthenticationFilter.java   Custom filter #1 — reads Bearer token
+│   ├── ForcePasswordChangeFilter.java Custom filter #2 — enforces password reset
+│   ├── UserDetailsServiceImpl.java    Loads user + builds authorities from DB
+│   └── SecurityConfig.java            SecurityFilterChain, permission rules
+├── dto/                           Java records (no Lombok needed)
+│   ├── LoginRequest.java
+│   ├── RegisterRequest.java
+│   ├── AuthResponse.java          includes permissions list
+│   ├── ChangePasswordRequest.java
+│   ├── CreateUserRequest.java     admin creates user with roleName string
+│   ├── UserSummary.java           safe user view (no password)
+│   ├── ProductDto.java            product request record
+│   └── ProductDtoResponse.java    product response record
 └── exception/
-    ├── ResourceNotFoundException.java  ← @ResponseStatus
-    └── GlobalExceptionHandler.java     ← @RestControllerAdvice, @ExceptionHandler, @Slf4j
-
-src/main/resources/
-├── application.properties          ← datasource, JPA, logging config
-└── data.sql                        ← seed data (5 products loaded on startup)
+    ├── ResourceNotFoundException.java
+    └── GlobalExceptionHandler.java    handles security + validation exceptions
 ```
 
 ---
@@ -39,60 +88,224 @@ src/main/resources/
 ### Start
 
 ```bash
-mvn spring-boot:run
+JAVA17_HOME=/path/to/jdk-21 mvn spring-boot:run
 ```
 
-### Build executable JAR
-
-```bash
-mvn clean package
-java -jar target/crud-demo-0.0.1-SNAPSHOT.jar
-```
-
-The app starts on **http://localhost:8080** and seeds 5 products automatically.
+App starts on **http://localhost:8095**. H2 console: **http://localhost:8095/h2-console**
 
 ---
 
-## Build Notes
+## Seed Accounts
 
-### Lombok annotation processing
-
-Lombok requires explicit registration as a Maven annotation processor — having it
-as a plain `<dependency>` is not enough. The `pom.xml` registers it via
-`maven-compiler-plugin`'s `annotationProcessorPaths` so `@Slf4j`, `@Data`,
-`@Builder`, etc. are generated at compile time.
-
-### Java version (terminal builds)
-
-Maven must compile with **Java 17**. If your terminal `JAVA_HOME` points to a
-newer JDK (e.g. Java 21+), Lombok's annotation processor will crash because
-`TypeTag.UNKNOWN` was removed in later compiler internals.
-
-The build is configured with `<fork>true</fork>` and `<executable>${env.JAVA17_HOME}/bin/javac</executable>`.
-Set `JAVA17_HOME` before running Maven from the terminal:
-
-```bash
-export JAVA17_HOME=/Users/learning/Library/Java/JavaVirtualMachines/ms-17.0.18/Contents/Home
-mvn clean compile
-# or in one line:
-JAVA17_HOME=/Users/learning/Library/Java/JavaVirtualMachines/ms-17.0.18/Contents/Home mvn spring-boot:run
-```
-
-**IntelliJ** handles this automatically — it uses the JDK configured in
-*Project Structure → Project SDK* (set it to the Microsoft Java 17 SDK).
+| Username | Password   | Role         | mustChangePassword |
+|----------|------------|--------------|--------------------|
+| `admin`  | `admin123` | `ROLE_ADMIN` | false              |
+| `user`   | `user123`  | `ROLE_USER`  | false              |
+| `newbie` | `user123`  | `ROLE_USER`  | **true**           |
 
 ---
 
-## Seed Data Fix (data.sql)
+## Authentication Flow
 
-`created_at` and `updated_at` are `NOT NULL` columns. The `@PrePersist`
-callback only fires through JPA — raw SQL in `data.sql` bypasses it.
-The INSERT statements explicitly supply `NOW()` for both columns:
+```
+POST /api/auth/login
+  body: { "username": "admin", "password": "admin123" }
+
+Response:
+  {
+    "token": "eyJhbGci...",
+    "username": "admin",
+    "role": "ROLE_ADMIN",
+    "permissions": ["PRODUCT_DELETE","PRODUCT_READ","PRODUCT_WRITE","USER_READ","USER_WRITE"],
+    "mustChangePassword": false
+  }
+
+Use the token in subsequent requests:
+  Authorization: Bearer eyJhbGci...
+```
+
+---
+
+## API Endpoints
+
+### Authentication — `/api/auth`
+
+| Method | Path                      | Auth Required   | Description                          |
+|--------|---------------------------|-----------------|--------------------------------------|
+| POST   | `/api/auth/login`         | Public          | Login — returns JWT + permissions    |
+| POST   | `/api/auth/register`      | Public          | Self-service register (ROLE_USER)    |
+| POST   | `/api/auth/change-password` | Any JWT       | Change password / clear force flag   |
+| GET    | `/api/auth/me`            | Any JWT         | Current user profile                 |
+
+### Access Control Tests — `/api/test`
+
+| Method | Path               | Required Permission | Description              |
+|--------|--------------------|---------------------|--------------------------|
+| GET    | `/api/test/public` | None                | Open to everyone         |
+| GET    | `/api/test/user`   | `PRODUCT_READ`      | Accessible to USER+ADMIN |
+| GET    | `/api/test/admin`  | `USER_READ`         | Accessible to ADMIN only |
+
+### Products — `/api/products`
+
+| Method | Path                                    | Required Permission  | Description           |
+|--------|-----------------------------------------|----------------------|-----------------------|
+| GET    | `/api/products`                         | `PRODUCT_READ`       | Paginated list        |
+| GET    | `/api/products/{id}`                    | `PRODUCT_READ`       | Get by ID             |
+| POST   | `/api/products`                         | `PRODUCT_WRITE`      | Create product        |
+| PUT    | `/api/products/{id}`                    | `PRODUCT_WRITE`      | Update product        |
+| DELETE | `/api/products/{id}`                    | `PRODUCT_DELETE`     | Delete product        |
+| GET    | `/api/products/search?q=`               | `PRODUCT_READ`       | Keyword search        |
+| GET    | `/api/products/category/{cat}`          | `PRODUCT_READ`       | By category           |
+| GET    | `/api/products/price-range?min=&max=`   | `PRODUCT_READ`       | By price range        |
+| GET    | `/api/products/low-stock?threshold=`    | `PRODUCT_READ`       | Low-stock alert       |
+| GET    | `/api/products/stats/categories`        | `PRODUCT_READ`       | Category stats        |
+
+### Admin — `/api/admin` (all require `USER_READ`; mutations require `USER_WRITE`)
+
+| Method | Path                                        | Permission   | Description                   |
+|--------|---------------------------------------------|--------------|-------------------------------|
+| GET    | `/api/admin/users`                          | `USER_READ`  | List all users                |
+| GET    | `/api/admin/users/{id}`                     | `USER_READ`  | Get user by ID                |
+| GET    | `/api/admin/roles`                          | `USER_READ`  | List roles + their permissions|
+| POST   | `/api/admin/users`                          | `USER_WRITE` | Create user account           |
+| PUT    | `/api/admin/users/{id}/role?roleName=`      | `USER_WRITE` | Change user's role            |
+| PUT    | `/api/admin/users/{id}/disable`             | `USER_WRITE` | Disable account               |
+| PUT    | `/api/admin/users/{id}/enable`              | `USER_WRITE` | Re-enable account             |
+| PUT    | `/api/admin/users/{id}/force-password-change`| `USER_WRITE`| Force reset on next login     |
+| DELETE | `/api/admin/users/{id}`                     | `USER_WRITE` | Permanently delete            |
+
+---
+
+## curl Quick Reference
+
+### Login as admin
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8095/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+echo $TOKEN
+```
+
+### Access a protected product endpoint
+```bash
+curl http://localhost:8095/api/products \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Create a product (PRODUCT_WRITE required)
+```bash
+curl -X POST http://localhost:8095/api/products \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Laptop Stand","description":"Aluminium adjustable","price":49.99,"stock":80,"category":"Electronics"}'
+```
+
+### Delete a product (PRODUCT_DELETE — admin only)
+```bash
+curl -X DELETE http://localhost:8095/api/products/1 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Try delete as regular user (expect 403)
+```bash
+USER_TOKEN=$(curl -s -X POST http://localhost:8095/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"user","password":"user123"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+curl -X DELETE http://localhost:8095/api/products/1 \
+  -H "Authorization: Bearer $USER_TOKEN"
+# -> 403: user has PRODUCT_READ + PRODUCT_WRITE but not PRODUCT_DELETE
+```
+
+### First-login forced password change
+```bash
+# 1 — login as newbie (mustChangePassword=true in response)
+NEWBIE=$(curl -s -X POST http://localhost:8095/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"newbie","password":"user123"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# 2 — any endpoint is blocked (ForcePasswordChangeFilter returns 403)
+curl http://localhost:8095/api/products \
+  -H "Authorization: Bearer $NEWBIE"
+
+# 3 — change the password
+curl -X POST http://localhost:8095/api/auth/change-password \
+  -H "Authorization: Bearer $NEWBIE" \
+  -H "Content-Type: application/json" \
+  -d '{"currentPassword":"user123","newPassword":"NewPass@99"}'
+# response contains a new token with mustChangePassword: false
+
+# 4 — full access now works
+```
+
+### Admin creates a user with forced password change
+```bash
+curl -X POST http://localhost:8095/api/admin/users \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "alice",
+    "email": "alice@example.com",
+    "temporaryPassword": "Temp@123",
+    "roleName": "ROLE_USER",
+    "mustChangePassword": true
+  }'
+```
+
+### View all roles and their permissions
+```bash
+curl http://localhost:8095/api/admin/roles \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## How DB-Driven RBAC Works
+
+1. **Permissions** are rows in `app_permission` (e.g. `PRODUCT_DELETE`).
+2. **Roles** are rows in `app_role`, joined to permissions via `role_permissions`.
+3. **Users** reference one role via a foreign key (`role_id`).
+4. On every request, `UserDetailsServiceImpl` loads the user's role and all its permissions from the DB and constructs the Spring Security authority list:
+
+```
+authorities = ["ROLE_ADMIN", "PRODUCT_READ", "PRODUCT_WRITE", "PRODUCT_DELETE", "USER_READ", "USER_WRITE"]
+```
+
+5. `SecurityConfig` and `@PreAuthorize` check against this authority list.
+
+To grant a new permission to `ROLE_USER`, just insert a row in `role_permissions` — no code changes required:
 
 ```sql
-INSERT INTO products (name, description, price, stock, category, created_at, updated_at) VALUES
-  ('Wireless Keyboard', '...', 89.99, 150, 'Electronics', NOW(), NOW()),
-  ...
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM app_role r, app_permission p
+WHERE r.name = 'ROLE_USER' AND p.name = 'PRODUCT_DELETE';
+```
+
+---
+
+## Security Filter Order
+
+```
+Request
+  |
+  v  JwtAuthenticationFilter        (OncePerRequestFilter)
+  |   - extracts Bearer token
+  |   - validates JWT signature + expiry
+  |   - loads user + authorities from DB
+  |   - sets SecurityContext
+  |
+  v  ForcePasswordChangeFilter      (OncePerRequestFilter)
+  |   - reads mustChangePassword claim from JWT
+  |   - if true: blocks all endpoints except /api/auth/change-password
+  |
+  v  FilterSecurityInterceptor      (Spring built-in)
+  |   - checks requestMatchers rules (hasAuthority, permitAll, etc.)
+  |   - calls @PreAuthorize SpEL if present
+  |
+  v  Controller method
 ```
 
 ---
@@ -101,186 +314,66 @@ INSERT INTO products (name, description, price, stock, category, created_at, upd
 
 | URL | Description |
 |-----|-------------|
-| http://localhost:8080/swagger-ui.html | Interactive Swagger UI |
-| http://localhost:8080/v3/api-docs | Raw OpenAPI 3 JSON spec |
-
-Powered by `springdoc-openapi-starter-webmvc-ui`. Every endpoint is annotated
-with `@Operation`, `@ApiResponse`, and `@Parameter` so Swagger UI shows
-summaries, response codes, and parameter descriptions.
-
----
-
-## API Endpoints
-
-| Method | URL                                     | Description                   |
-|--------|-----------------------------------------|-------------------------------|
-| GET    | /api/products                           | Get all products               |
-| GET    | /api/products/{id}                      | Get product by ID              |
-| POST   | /api/products                           | Create a product               |
-| PUT    | /api/products/{id}                      | Update a product               |
-| DELETE | /api/products/{id}                      | Delete a product               |
-| GET    | /api/products/search?q={keyword}        | Search by name/desc/category   |
-| GET    | /api/products/category/{category}       | Filter by category             |
-| GET    | /api/products/price-range?min=&max=     | Filter by price range          |
-| GET    | /api/products/low-stock?threshold=      | Find low-stock products        |
-| GET    | /api/products/stats/categories          | Category aggregation stats     |
-
----
-
-## Complete curl Reference
-
-### Get all products
-```bash
-curl http://localhost:8080/api/products
-```
-
-### Get product by ID
-```bash
-curl http://localhost:8080/api/products/1
-```
-
-### Create a product
-```bash
-curl -X POST http://localhost:8080/api/products \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Mechanical Keyboard",
-    "description": "Tactile switches, RGB backlighting",
-    "price": 129.99,
-    "stock": 75,
-    "category": "Electronics"
-  }'
-```
-
-### Update a product (full replacement)
-```bash
-curl -X PUT http://localhost:8080/api/products/1 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Mechanical Keyboard Pro",
-    "description": "Updated description, tactile switches",
-    "price": 149.99,
-    "stock": 60,
-    "category": "Electronics"
-  }'
-```
-
-### Delete a product
-```bash
-curl -X DELETE http://localhost:8080/api/products/1
-```
-
-### Search by keyword (name, description, or category)
-```bash
-curl "http://localhost:8080/api/products/search?q=keyboard"
-```
-
-### Filter by category
-```bash
-curl http://localhost:8080/api/products/category/Electronics
-```
-
-### Filter by price range
-```bash
-curl "http://localhost:8080/api/products/price-range?min=10&max=50"
-```
-
-### Find low-stock products (default threshold: 10)
-```bash
-curl "http://localhost:8080/api/products/low-stock?threshold=20"
-```
-
-### Category aggregation stats
-```bash
-curl http://localhost:8080/api/products/stats/categories
-```
-
----
-
-## Validation Rules
-
-Sent in the request body for POST and PUT:
-
-| Field         | Rule                                      |
-|---------------|-------------------------------------------|
-| `name`        | Required, 2–100 characters                |
-| `description` | Optional, max 1000 characters             |
-| `price`       | Required, greater than 0                  |
-| `stock`       | Required, 0–100,000                       |
-| `category`    | Optional, max 50 characters               |
-
-Validation failures return **400 Bad Request** with a `fieldErrors` map:
-
-```json
-{
-  "status": 400,
-  "error": "Validation Failed",
-  "message": "One or more fields have invalid values",
-  "fieldErrors": {
-    "name": "Product name must not be blank",
-    "price": "Price must be greater than 0"
-  }
-}
-```
+| http://localhost:8095/swagger-ui.html | Interactive Swagger UI |
+| http://localhost:8095/v3/api-docs | Raw OpenAPI 3 JSON |
 
 ---
 
 ## H2 Console
 
-Browse the in-memory database at: **http://localhost:8080/h2-console**
+Browse the in-memory database at: **http://localhost:8095/h2-console**
 
-| Field    | Value                  |
-|----------|------------------------|
-| JDBC URL | `jdbc:h2:mem:cruddb`   |
-| Username | `sa`                   |
-| Password | *(leave empty)*        |
+| Field    | Value                |
+|----------|----------------------|
+| JDBC URL | `jdbc:h2:mem:cruddb` |
+| Username | `sa`                 |
+| Password | *(empty)*            |
+
+Useful tables: `app_user`, `app_role`, `app_permission`, `role_permissions`, `products`
 
 ---
 
 ## Annotation Cheatsheet
 
-| Annotation               | Layer      | Purpose                                                        |
-|--------------------------|------------|----------------------------------------------------------------|
-| `@SpringBootApplication` | App        | Meta: @Configuration + @EnableAutoConfiguration + @ComponentScan |
-| `@RestController`        | Controller | @Controller + @ResponseBody — returns JSON                     |
-| `@RequestMapping`        | Controller | Base URL prefix for all methods                                |
-| `@GetMapping`            | Controller | Maps HTTP GET to a method                                      |
-| `@PostMapping`           | Controller | Maps HTTP POST to a method                                     |
-| `@PutMapping`            | Controller | Maps HTTP PUT to a method                                      |
-| `@DeleteMapping`         | Controller | Maps HTTP DELETE to a method                                   |
-| `@PathVariable`          | Controller | Extracts `{id}` from the URL path                              |
-| `@RequestParam`          | Controller | Extracts `?param=value` from the query string                  |
-| `@RequestBody`           | Controller | Deserialises JSON request body into a Java object              |
-| `@Valid`                 | Controller | Triggers Bean Validation on the annotated parameter            |
-| `@Service`               | Service    | Marks as business logic bean                                   |
-| `@Slf4j`                 | Service    | Generates `private static final Logger log` via Lombok         |
-| `@Transactional`         | Service    | Wraps method in a DB transaction; rollback on error            |
-| `@Repository`            | Repository | Marks as data-access bean; enables exception translation       |
-| `@Query`                 | Repository | Custom JPQL or native SQL query                                |
-| `@Entity`                | Model      | Maps this class to a DB table                                  |
-| `@Table`                 | Model      | Specifies the table name                                       |
-| `@Id`                    | Model      | Marks the primary key field                                    |
-| `@GeneratedValue`        | Model      | Auto-generates the PK value                                    |
-| `@Column`                | Model      | Column constraints (nullable, length, etc.)                    |
-| `@Data`                  | Model      | Lombok: generates getters, setters, toString, equals, hashCode |
-| `@Builder`               | Model      | Lombok: enables builder pattern                                |
-| `@NoArgsConstructor`     | Model      | Lombok: generates no-arg constructor (required by JPA)         |
-| `@AllArgsConstructor`    | Model      | Lombok: generates all-args constructor (used by @Builder)      |
-| `@PrePersist`            | Model      | JPA lifecycle callback: runs before INSERT                     |
-| `@PreUpdate`             | Model      | JPA lifecycle callback: runs before UPDATE                     |
-| `@NotBlank`              | Model      | Validates field is not blank (Bean Validation)                 |
-| `@NotNull`               | Model      | Validates field is not null                                    |
-| `@Size`                  | Model      | Validates string length range                                  |
-| `@Min` / `@Max`          | Model      | Validates numeric range                                        |
-| `@DecimalMin`            | Model      | Validates decimal minimum value                                |
-| `@RestControllerAdvice`  | Exception  | Global exception handler for all controllers                   |
-| `@ExceptionHandler`      | Exception  | Maps exception type to a handler method                        |
-| `@ResponseStatus`        | Exception  | Sets HTTP status code for an exception                         |
+| Annotation                  | Layer    | Purpose                                                        |
+|-----------------------------|----------|----------------------------------------------------------------|
+| `@SpringBootApplication`    | App      | @Configuration + @EnableAutoConfiguration + @ComponentScan    |
+| `@EnableWebSecurity`        | Security | Activates Spring Security web support                         |
+| `@EnableMethodSecurity`     | Security | Enables @PreAuthorize / @PostAuthorize on methods             |
+| `@PreAuthorize`             | Security | SpEL expression checked before method runs                    |
+| `@RestController`           | Web      | @Controller + @ResponseBody — returns JSON                    |
+| `@GetMapping` etc.          | Web      | Maps HTTP method to a handler                                  |
+| `@RequestBody`              | Web      | Deserialises JSON into a Java record                          |
+| `@Valid`                    | Web      | Triggers Bean Validation                                      |
+| `@Service`                  | Service  | Business logic bean                                           |
+| `@Transactional`            | Service  | DB transaction boundary                                       |
+| `@Repository`               | Data     | Data access bean + exception translation                      |
+| `@Entity`                   | Model    | Maps class to a DB table                                      |
+| `@ManyToOne`                | Model    | FK relationship (User -> Role)                                |
+| `@ManyToMany`               | Model    | Join-table relationship (Role -> Permission)                  |
+| `@JoinTable`                | Model    | Configures the join table for @ManyToMany                     |
+| `@PrePersist` / `@PreUpdate`| Model    | JPA lifecycle callbacks for timestamps                        |
+| `@Data` / `@Builder`        | Lombok   | Generates boilerplate                                         |
+| `@RestControllerAdvice`     | Error    | Global exception handler                                      |
 
 ---
 
 ## Running Tests
 
 ```bash
-mvn test
+JAVA17_HOME=/path/to/jdk-21 mvn test
 ```
+
+---
+
+## Lecture PDF
+
+A detailed step-by-step lecture guide is included:
+
+```
+Spring_Security_JWT_Lecture.pdf
+```
+
+Covers: authentication vs authorisation, the security filter chain, JWT anatomy,
+custom filters line-by-line, DB-driven RBAC, UserDetailsService, SecurityConfig,
+first-login password change, full API reference, and curl testing guide.
