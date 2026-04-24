@@ -4,7 +4,11 @@
       "Bash(mvn compile:*)",
       "Bash(java -version)",
       "Bash(mvn -version)",
-      "Bash(JAVA17_HOME=/Users/learning/Library/Java/JavaVirtualMachines/ms-17.0.18/Contents/Home mvn clean compile)"
+      "Bash(JAVA17_HOME=/Users/learning/Library/Java/JavaVirtualMachines/ms-17.0.18/Contents/Home mvn clean compile)",
+      "Bash(JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home mvn compile -q)",
+      "Bash(JAVA17_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home mvn compile -q)",
+      "Bash(python3 generate_flow_pdf.py)",
+      "Bash(JAVA17_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home mvn compile)"
     ]
   }
 }

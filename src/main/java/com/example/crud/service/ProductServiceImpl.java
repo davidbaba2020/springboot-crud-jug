@@ -5,9 +5,7 @@ import com.example.crud.dto.ProductDtoResponse;
 import com.example.crud.exception.ResourceNotFoundException;
 import com.example.crud.model.Product;
 import com.example.crud.repository.ProductRepository;
-import com.fasterxml.jackson.databind.util.BeanUtil;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.BeanUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -103,11 +101,9 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public ProductDtoResponse create(ProductDto request) {
         log.info("Creating new product: {}", request.name());
-        Product p = new Product();
-        BeanUtils.copyProperties(request, p);
-//        Product saved = productRepository.save(toEntity(request));
-        log.info("Product created with id: {}", p.getId());
-        return toResponse(p);
+        Product saved = productRepository.save(toEntity(request));
+        log.info("Product created with id: {}", saved.getId());
+        return toResponse(saved);
     }
 
     @Override

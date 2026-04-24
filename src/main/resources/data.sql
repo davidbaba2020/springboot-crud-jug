@@ -38,25 +38,5 @@ FROM   app_role r, app_permission p
 WHERE  r.name = 'ROLE_USER'
 AND    p.name IN ('PRODUCT_READ', 'PRODUCT_WRITE');
 
--- ── Users ─────────────────────────────────────────────────────
--- BCrypt-encoded passwords (strength 12):
---   admin123  -> $2a$12$TwjGN/qdxVdJx8KGFP5VTu9yZIBJ3vQ4nA6Zo/yAeqn1Rq3ZCIaGy
---   user123   -> $2a$12$RkWQGy0zMdG1I/f5nGPRpOoW4CmK0XCK.jVh9xBfq5YRQlPfKh8/C
-INSERT INTO app_user (username, email, password, role_id, must_change_password, enabled, created_at, updated_at)
-SELECT 'admin', 'admin@example.com',
-       '$2a$12$TwjGN/qdxVdJx8KGFP5VTu9yZIBJ3vQ4nA6Zo/yAeqn1Rq3ZCIaGy',
-       r.id, false, true, NOW(), NOW()
-FROM   app_role r WHERE r.name = 'ROLE_ADMIN';
-
-INSERT INTO app_user (username, email, password, role_id, must_change_password, enabled, created_at, updated_at)
-SELECT 'user', 'user@example.com',
-       '$2a$12$RkWQGy0zMdG1I/f5nGPRpOoW4CmK0XCK.jVh9xBfq5YRQlPfKh8/C',
-       r.id, false, true, NOW(), NOW()
-FROM   app_role r WHERE r.name = 'ROLE_USER';
-
--- newbie — forced to change password on first login
-INSERT INTO app_user (username, email, password, role_id, must_change_password, enabled, created_at, updated_at)
-SELECT 'newbie', 'newbie@example.com',
-       '$2a$12$RkWQGy0zMdG1I/f5nGPRpOoW4CmK0XCK.jVh9xBfq5YRQlPfKh8/C',
-       r.id, true, true, NOW(), NOW()
-FROM   app_role r WHERE r.name = 'ROLE_USER';
+-- Users are seeded by DataInitializer.java at startup using
+-- Spring's BCryptPasswordEncoder so passwords are always correctly hashed.
