@@ -81,6 +81,7 @@ class ProductServiceTest {
         assertThat(created.id()).isNotNull();
         assertThat(created.name()).isEqualTo("Test Product");
         assertThat(created.price()).isEqualByComparingTo("29.99");
+        assertThat(created.category()).isEqualTo("Test");
     }
 
     @Test
@@ -91,7 +92,7 @@ class ProductServiceTest {
 
         assertThat(found).isNotNull();
         assertThat(found.name()).isEqualTo("Test Product");
-    }
+        assertThat(found.price()).isEqualByComparingTo("29.99");    }
 
     @Test
     @DisplayName("Should update product successfully")
